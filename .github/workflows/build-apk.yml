@@ -25,12 +25,12 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - name: Pin Gradle to 8.7
+      - name: Pin Gradle to 8.10
         shell: bash
         working-directory: work/android
         run: |
           if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
-            sed -i 's/gradle-[0-9.]*-bin.zip/gradle-8.7-bin.zip/g' gradle/wrapper/gradle-wrapper.properties
+            sed -i -E 's/gradle-[0-9.]+-/gradle-8.10-/g' gradle/wrapper/gradle-wrapper.properties
           fi
 
       # Do not use android-actions/setup-android@v3 here.
