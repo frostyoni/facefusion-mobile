@@ -93,16 +93,38 @@ jobs:
           set -Eeuo pipefail
 
           python3 - <<'PY'
+          import re
           from pathlib import Path
 
           path = Path("app/build.gradle.kts")
           text = path.read_text()
 
-          # 1. Fix uninitialized property check on Line 113
+          # 1. Fallback patch if the block is still in its original state
+          # (Uses findProperty directly to avoid re-introducing uninitialized variable syntax)
+          old = '''tasks.named("preBuild") {
+              dependsOn(qnnStage)
+          }'''
+
+          new = '''if (findProperty("prebuiltNativeDir") == null) {
+              tasks.named("preBuild") {
+                  dependsOn(qnnStage)
+              }
+          }'''
+
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          # 2. Fix uninitialized property check on Line 113 and anywhere else in the file
           text = text.replace("if (prebuiltNativeDir == null)", 'if (findProperty("prebuiltNativeDir") == null)')
           text = text.replace("if (prebuiltNativeDir != null)", 'if (findProperty("prebuiltNativeDir") != null)')
 
-          # 2. Fix Kotlin DSL type mismatch on Line 515 (File? to Any)
+          # 3. Safely initialize prebuiltNativeDir declaration if present in gradle.kts
+          decl_pattern = r"(val|var)\s+prebuiltNativeDir\b.*"
+          new_decl = 'val prebuiltNativeDir: File? = findProperty("prebuiltNativeDir")?.toString()?.let { file(it) }'
+          if re.search(decl_pattern, text):
+              text = re.sub(decl_pattern, new_decl, text)
+
+          # 4. Fix Kotlin DSL type mismatch on Line 515 (File? to Any)
           text = text.replace(
               'sourceSets.getByName("main").jniLibs.srcDir(prebuiltNativeDir)',
               'prebuiltNativeDir?.let { sourceSets.getByName("main").jniLibs.srcDir(it) }'
@@ -114,20 +136,6 @@ jobs:
                   'jniLibs.srcDir(prebuiltNativeDir)',
                   'jniLibs.srcDir(prebuiltNativeDir!!)'
               )
-              
-          # Fallback patch if the block is still in its original state
-          old = '''tasks.named("preBuild") {
-              dependsOn(qnnStage)
-          }'''
-
-          new = '''if (prebuiltNativeDir == null) {
-              tasks.named("preBuild") {
-                  dependsOn(qnnStage)
-              }
-          }'''
-
-          if old in text:
-              text = text.replace(old, new, 1)
 
           path.write_text(text)
           PY
