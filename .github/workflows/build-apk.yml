@@ -160,3 +160,20 @@ jobs:
           name: facefusion-mobile-debug-apk
           path: work/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Commit APK back to repository
+        run: |
+          # 1. Create a directory in the root of the repo for the APK
+          mkdir -p apks
+
+          # 2. Copy the generated APK
+          cp work/android/app/build/outputs/apk/debug/*.apk apks/facefusion-app-debug.apk
+
+          # 3. Configure Git user
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 4. Stage, commit, and push
+          git add apks/app-debug.apk
+          git commit -m "build: update compiled APK [skip ci]" || echo "No changes to commit"
+          git push
