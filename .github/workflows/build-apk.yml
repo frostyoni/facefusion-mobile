@@ -98,6 +98,12 @@ jobs:
           path = Path("app/build.gradle.kts")
           text = path.read_text()
 
+          # Fix invalid variable reference in Kotlin DSL
+          text = text.replace("prebuiltNativeDir == null", 'findProperty("prebuiltNativeDir") == null')
+          text = text.replace("prebuiltNativeDir != null", 'findProperty("prebuiltNativeDir") != null')
+
+          # Fallback patch if the block is still in its original state
+
           old = '''tasks.named("preBuild") {
               dependsOn(qnnStage)
           }'''
