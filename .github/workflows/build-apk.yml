@@ -25,6 +25,14 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      - name: Pin Gradle to 8.7
+        shell: bash
+        working-directory: work/android
+        run: |
+          if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+            sed -i 's/gradle-[0-9.]*-bin.zip/gradle-8.7-bin.zip/g' gradle/wrapper/gradle-wrapper.properties
+          fi
+
       # Do not use android-actions/setup-android@v3 here.
       # ubuntu-latest already contains the Android SDK.
       - name: Install Android SDK packages
