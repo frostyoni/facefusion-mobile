@@ -1,0 +1,128 @@
+name: Build Debug APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      # Do not use android-actions/setup-android@v3 here.
+      # ubuntu-latest already contains the Android SDK.
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+
+          if [[ ! -x "$SDKMANAGER" ]]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
+          fi
+
+          if [[ ! -x "$SDKMANAGER" ]]; then
+            echo "::error::sdkmanager was not found"
+            find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print
+            exit 1
+          fi
+
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+
+          "$SDKMANAGER" --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;34.0.0" \
+            "cmake;3.22.1" \
+            "ndk;27.2.12479018"
+
+      - name: Download matching native libraries
+        shell: bash
+        working-directory: work/android
+        run: |
+          set -Eeuo pipefail
+
+          mkdir -p "$RUNNER_TEMP/upstream-apk"
+          mkdir -p prebuilt-native/arm64-v8a
+
+          curl --fail --location \
+            --retry 5 \
+            --retry-all-errors \
+            -o "$RUNNER_TEMP/upstream-apk/facefusion-mobile.apk" \
+            "https://github.com/AbrahamPaulJ/facefusion-mobile/releases/download/v0.9.34/facefusion-mobile-0.9.34-release.apk"
+
+          unzip -j -o \
+            "$RUNNER_TEMP/upstream-apk/facefusion-mobile.apk" \
+            'lib/arm64-v8a/*' \
+            -d prebuilt-native/arm64-v8a
+
+          test -f prebuilt-native/arm64-v8a/libffnative.so
+
+          echo "Extracted native libraries:"
+          find prebuilt-native -type f -printf '%P\n' | sort
+
+      - name: Configure Gradle for prebuilt native libraries
+        shell: bash
+        working-directory: work/android
+        run: |
+          set -Eeuo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/build.gradle.kts")
+          text = path.read_text()
+
+          old = '''tasks.named("preBuild") {
+              dependsOn(qnnStage)
+          }'''
+
+          new = '''if (prebuiltNativeDir == null) {
+              tasks.named("preBuild") {
+                  dependsOn(qnnStage)
+              }
+          }'''
+
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Build Debug APK
+        shell: bash
+        working-directory: work/android
+        run: |
+          set -Eeuo pipefail
+
+          chmod +x ./gradlew
+
+          ./gradlew \
+            --no-daemon \
+            --stacktrace \
+            :app:assembleDebug \
+            -PprebuiltNativeDir="$PWD/prebuilt-native"
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: facefusion-mobile-debug-apk
+          path: work/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
